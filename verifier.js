@@ -1,3 +1,5 @@
+const WebSocket = require('ws');
+global.WebSocket = WebSocket;
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const puppeteer = require('puppeteer');
 const { createClient } = require('@supabase/supabase-js');
