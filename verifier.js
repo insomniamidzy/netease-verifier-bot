@@ -46,14 +46,25 @@ async function startVerifier() {
         await page.click('.privacy-wrap-pc label, .bui-checkbox-content');
         await sleep(500);
 
-        // 2. 確實點擊登入按鈕
-        const loginBtn = await page.$('.userid-login-btn');
-        if (loginBtn) {
-            await loginBtn.click();
-            console.log("已點擊登入，等待角色讀取...");
-            await sleep(4000); 
+        // 2. 透過前端強效腳本強制點擊登入按鈕
+        console.log("正在強制觸發登入按鈕...");
+        const loginSuccess = await page.evaluate(() => {
+            const btn = document.querySelector('.userid-login-btn');
+            if (btn) {
+                // 模擬完整滑鼠點擊事件，破解前端框架阻擋
+                btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                btn.click();
+                return true;
+            }
+            return false;
+        });
+
+        if (loginSuccess) {
+            console.log("已成功送出登入，等待伺服器回應角色資料...");
+            await sleep(5000); // 給予充足時間讓伺服器回應 UID 角色
         } else {
-            console.error("找不到登入按鈕！");
+            console.error("找不到登入按鈕元素！");
         }
 
         await page.screenshot({ path: 'step1_after_login.png', fullPage: true });
