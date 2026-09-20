@@ -11,7 +11,7 @@ const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const orderId = process.env.ORDER_ID;
 const orderNo = process.env.ORDER_NO;
-const targetServer = process.env.TARGET_SERVER || '亞洲服'; // 預設給個防呆值
+const targetServer = process.env.TARGET_SERVER || '亞洲服';
 const targetUid = process.env.TARGET_UID;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -19,7 +19,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 async function startVerifier() {
     console.log(`[啟動審查] 接收到訂單 ${orderNo}，準備檢查 UID: ${targetUid}`);
     
-    // 💡 雲端 Linux 伺服器必須加上 --no-sandbox 參數才能順利啟動隱形瀏覽器
     const browser = await puppeteer.launch({ 
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -30,7 +29,7 @@ async function startVerifier() {
         await page.goto('https://pay.neteasegames.com/identityv/topup', { waitUntil: 'networkidle2' });
         await sleep(2000);
 
-        // 填入伺服器與 UID
+        // 1. 填寫伺服器與 UID
         try {
             await page.waitForSelector('.bui-select-selector', { timeout: 10000 });
             await page.click('.bui-select-selector');
@@ -47,43 +46,76 @@ async function startVerifier() {
         await page.click('.privacy-wrap-pc label, .bui-checkbox-content');
         await sleep(500);
 
-        await page.waitForSelector('.userid-login-btn', { visible: true });
-        await page.click('.userid-login-btn');
+        // 2. 確實點擊登入按鈕
+        const loginBtn = await page.$('.userid-login-btn');
+        if (loginBtn) {
+            await loginBtn.click();
+            console.log("已點擊登入，等待角色讀取...");
+            await sleep(4000); 
+        } else {
+            console.error("找不到登入按鈕！");
+        }
 
-        // 📸 關鍵點 1：等候 5 秒讓網頁彈出結果，並立刻拍張照存證！
-        await sleep(5000);
         await page.screenshot({ path: 'step1_after_login.png', fullPage: true });
 
-        // 點擊商品 (對應你原本 Tampermonkey 的步驟)
+        // 3. 點擊商品 (690 商品)
         const targetProductImg = await page.$('img[alt="690エコー"]');
         if (targetProductImg) {
             await targetProductImg.click();
             await sleep(2000);
         }
 
+        // 4. 點擊儲存/下一步按鈕
         const topupBtn = await page.$('.topup-action .topup-btn');
         if (topupBtn) {
             await topupBtn.click();
             await sleep(3000);
         }
 
-        // 📸 關鍵點 2：拍下點擊儲存後的畫面
         await page.screenshot({ path: 'step2_after_topup.png', fullPage: true });
 
-        console.log(`[${targetUid}] 正在深度探測阻擋彈窗...`);
+        // 5. 偵測真正的未實名阻擋
+        console.log(`[${targetUid}] 正在精準偵測實名驗證狀態...`);
         
         let result = 'PASS';
         try {
-            // 把等待時間拉長到 10 秒，確保彈窗若存在絕對抓得到
-            await page.waitForSelector('#bui-confirm .bui-modal-content', { visible: true, timeout: 10000 });
-            result = 'BLOCKED'; 
+            const blockedElement = await page.waitForFunction(
+                () => {
+                    const bodyText = document.body.innerText;
+                    return bodyText.includes('未實名') || bodyText.includes('未成年') || bodyText.includes('认证') || document.querySelector('#bui-confirm');
+                },
+                { timeout: 5000 }
+            );
+            if (blockedElement) {
+                result = 'BLOCKED';
+            }
         } catch (e) {
-            result = 'PASS'; 
+            result = 'PASS';
         }
 
-        // 📸 關鍵點 3：最終判定結果截圖
         await page.screenshot({ path: `final_${result}.png`, fullPage: true });
         await browser.close();
+
+        // ==========================================
+        // 6. 依照結果更新 Supabase 並發送 Discord
+        // ==========================================
+        if (result === 'BLOCKED') {
+            console.log(`🚨 訂單 ${orderNo} 未實名/被阻擋！`);
+            await supabase.from('orders').update({ realname_status: 'UNVERIFIED' }).eq('id', orderId);
+
+            if (DISCORD_WEBHOOK) {
+                await fetch(DISCORD_WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: `⚠️ **緊急通知：帳號未實名阻擋！**\n訂單編號：${orderNo}\n玩家 UID：${targetUid}\n請立刻聯絡客戶進行實名認證！`
+                    })
+                });
+            }
+        } else {
+            console.log(`✅ 訂單 ${orderNo} 實名驗證通過！`);
+            await supabase.from('orders').update({ realname_status: 'VERIFIED' }).eq('id', orderId);
+        }
 
     } catch (error) {
         console.error(`[${targetUid}] 檢查過程發生錯誤：`, error);
