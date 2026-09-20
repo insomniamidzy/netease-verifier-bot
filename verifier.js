@@ -1,3 +1,4 @@
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const puppeteer = require('puppeteer');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -29,11 +30,11 @@ async function startVerifier() {
         // 1. 選擇伺服器
         await page.waitForSelector('.bui-select-selector', { visible: true });
         await page.click('.bui-select-selector'); 
-        await page.waitForTimeout(500); // 等待下拉選單動畫展開
+        await sleep(500); // 等待下拉選單動畫展開
         
         // 模擬輸入伺服器名稱並按下 Enter 選擇
         await page.type('.bui-select-selection-search-input', targetServer, { delay: 100 });
-        await page.waitForTimeout(500); 
+        await sleep(500); 
         await page.keyboard.press('Enter');
 
         // 2. 填寫 UID
@@ -43,18 +44,18 @@ async function startVerifier() {
         // 3. 勾選隱私協議
         await page.waitForSelector('.privacy-wrap-pc label', { visible: true });
         await page.click('.privacy-wrap-pc label');
-        await page.waitForTimeout(500);
+        await sleep(500);
 
         // 4. 點擊登入
         await page.waitForSelector('.userid-login-btn', { visible: true });
         await page.click('.userid-login-btn');
 
         // 給予網頁充足的時間載入驗證結果
-        await page.waitForTimeout(3000);
+        await sleep(3000);
 
         await page.waitForSelector('img[alt="690エコー"]');
         await page.click('img[alt="690エコー"]');
-        await page.waitForTimeout(1000);
+        await sleep(1000);
         
         await page.waitForSelector('.topup-action .topup-btn');
         await page.click('.topup-action .topup-btn');
