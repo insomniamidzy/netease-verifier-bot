@@ -29,30 +29,36 @@ async function startVerifier() {
     try {
         await page.goto('https://pay.neteasegames.com/identityv/topup', { waitUntil: 'networkidle2' });
 
-        // 1. 選擇伺服器
-        await page.waitForSelector('.bui-select-selector', { visible: true });
-        await page.click('.bui-select-selector'); 
-        await sleep(500); // 等待下拉選單動畫展開
-        
-        // 模擬輸入伺服器名稱並按下 Enter 選擇
-        await page.type('.bui-select-selection-search-input', targetServer, { delay: 100 });
-        await sleep(500); 
-        await page.keyboard.press('Enter');
+        // 1. 給頁面一點緩衝時間等待框架載入
+        await sleep(2000);
 
-        // 2. 填寫 UID
-        await page.waitForSelector('input[placeholder="請輸入遊戲ID"]', { visible: true });
-        await page.type('input[placeholder="請輸入遊戲ID"]', targetUid, { delay: 50 });
+        // 2. 選擇伺服器
+        try {
+            await page.waitForSelector('.bui-select-selector', { timeout: 10000 });
+            await page.click('.bui-select-selector');
+            await sleep(500);
+            await page.type('.bui-select-selection-search-input', targetServer || '亞洲服', { delay: 100 });
+            await sleep(500);
+            await page.keyboard.press('Enter');
+        } catch (e) {
+            console.log("⚠️ 選擇伺服器步驟跳過或失敗，維持預設：", e.message);
+        }
 
-        // 3. 勾選隱私協議
-        await page.waitForSelector('.privacy-wrap-pc label', { visible: true });
-        await page.click('.privacy-wrap-pc label');
+        // 3. 填寫 UID (改用更穩定的 class 選擇器)
+        console.log(`正在尋找 UID 輸入框並填入: ${targetUid}`);
+        await page.waitForSelector('input.bui-input.gc-input-pc', { visible: true, timeout: 15000 });
+        await page.type('input.bui-input.gc-input-pc', targetUid, { delay: 50 });
+
+        // 4. 勾選隱私協議
+        await page.waitForSelector('.privacy-wrap-pc label, .bui-checkbox-content', { visible: true });
+        await page.click('.privacy-wrap-pc label, .bui-checkbox-content');
         await sleep(500);
 
-        // 4. 點擊登入
+        // 5. 點擊登入
         await page.waitForSelector('.userid-login-btn', { visible: true });
         await page.click('.userid-login-btn');
 
-        // 給予網頁充足的時間載入驗證結果
+        // 等待登入後角色資訊載入
         await sleep(3000);
 
         await page.waitForSelector('img[alt="690エコー"]');
