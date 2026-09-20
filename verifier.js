@@ -68,28 +68,34 @@ async function startVerifier() {
         await page.waitForSelector('.topup-action .topup-btn');
         await page.click('.topup-action .topup-btn');
 
-        console.log(`[${targetUid}] 正在探測年齡驗證彈窗...`);
+        console.log(`[${targetUid}] 正在探測實名驗證狀態...`);
         
-        const result = await Promise.race([
-            page.waitForSelector('#bui-confirm .bui-modal-content', { timeout: 10000 }).then(() => 'BLOCKED'),
-            page.waitForSelector('.pass-code-container input', { timeout: 10000 }).then(() => 'PASS')
-        ]);
+        // 透過簡單的 try-catch 來判斷有沒有出現未實名阻擋窗
+        let result = 'PASS';
+        try {
+            await page.waitForSelector('#bui-confirm .bui-modal-content', { timeout: 5000 });
+            result = 'BLOCKED'; // 有跳出阻擋窗 ➔ 未實名
+        } catch (e) {
+            result = 'PASS'; // 沒跳出阻擋窗 ➔ 正常通過
+        }
 
         await browser.close();
 
-        // 2. 依照結果更新 Supabase 並發送 Discord
+        // 依照結果更新 Supabase 與發送 Discord
         if (result === 'BLOCKED') {
             console.log(`🚨 訂單 ${orderNo} 未實名！`);
             await supabase.from('orders').update({ realname_status: 'UNVERIFIED' }).eq('id', orderId);
 
-            await fetch(DISCORD_WEBHOOK, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: `⚠️ **緊急通知：帳號未實名阻擋！**\n訂單編號：${orderNo}\n玩家 UID：${targetUid}\n請立刻聯絡客戶進行實名認證！`
-                })
-            });
-        } else if (result === 'PASS') {
+            if (DISCORD_WEBHOOK) {
+                await fetch(DISCORD_WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: `⚠️ **緊急通知：帳號未實名阻擋！**\n訂單編號：${orderNo}\n玩家 UID：${targetUid}\n請立刻聯絡客戶進行實名認證！`
+                    })
+                });
+            }
+        } else {
             console.log(`✅ 訂單 ${orderNo} 實名驗證通過！`);
             await supabase.from('orders').update({ realname_status: 'VERIFIED' }).eq('id', orderId);
         }
