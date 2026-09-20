@@ -8,6 +8,7 @@ const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const orderId = process.env.ORDER_ID;
 const orderNo = process.env.ORDER_NO;
+const targetServer = process.env.TARGET_SERVER || '亞洲服'; // 預設給個防呆值
 const targetUid = process.env.TARGET_UID;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -25,10 +26,31 @@ async function startVerifier() {
     try {
         await page.goto('https://pay.neteasegames.com/identityv/topup', { waitUntil: 'networkidle2' });
 
-        // 👉 在此替換網易真實的 UID 輸入框與確認按鈕的 Selector
-        // await page.type('.uid-input-class', targetUid);
-        // await page.click('.confirm-btn-class');
-        // await page.waitForTimeout(2000);
+        // 1. 選擇伺服器
+        await page.waitForSelector('.bui-select-selector', { visible: true });
+        await page.click('.bui-select-selector'); 
+        await page.waitForTimeout(500); // 等待下拉選單動畫展開
+        
+        // 模擬輸入伺服器名稱並按下 Enter 選擇
+        await page.type('.bui-select-selection-search-input', targetServer, { delay: 100 });
+        await page.waitForTimeout(500); 
+        await page.keyboard.press('Enter');
+
+        // 2. 填寫 UID
+        await page.waitForSelector('input[placeholder="請輸入遊戲ID"]', { visible: true });
+        await page.type('input[placeholder="請輸入遊戲ID"]', targetUid, { delay: 50 });
+
+        // 3. 勾選隱私協議
+        await page.waitForSelector('.privacy-wrap-pc label', { visible: true });
+        await page.click('.privacy-wrap-pc label');
+        await page.waitForTimeout(500);
+
+        // 4. 點擊登入
+        await page.waitForSelector('.userid-login-btn', { visible: true });
+        await page.click('.userid-login-btn');
+
+        // 給予網頁充足的時間載入驗證結果
+        await page.waitForTimeout(3000);
 
         await page.waitForSelector('img[alt="690エコー"]');
         await page.click('img[alt="690エコー"]');
