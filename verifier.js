@@ -28,11 +28,9 @@ async function startVerifier() {
 
     try {
         await page.goto('https://pay.neteasegames.com/identityv/topup', { waitUntil: 'networkidle2' });
-
-        // 1. 給頁面一點緩衝時間等待框架載入
         await sleep(2000);
 
-        // 2. 選擇伺服器
+        // 填入伺服器與 UID
         try {
             await page.waitForSelector('.bui-select-selector', { timeout: 10000 });
             await page.click('.bui-select-selector');
@@ -40,65 +38,52 @@ async function startVerifier() {
             await page.type('.bui-select-selection-search-input', targetServer || '亞洲服', { delay: 100 });
             await sleep(500);
             await page.keyboard.press('Enter');
-        } catch (e) {
-            console.log("⚠️ 選擇伺服器步驟跳過或失敗，維持預設：", e.message);
-        }
+        } catch (e) {}
 
-        // 3. 填寫 UID (改用更穩定的 class 選擇器)
-        console.log(`正在尋找 UID 輸入框並填入: ${targetUid}`);
         await page.waitForSelector('input.bui-input.gc-input-pc', { visible: true, timeout: 15000 });
         await page.type('input.bui-input.gc-input-pc', targetUid, { delay: 50 });
 
-        // 4. 勾選隱私協議
         await page.waitForSelector('.privacy-wrap-pc label, .bui-checkbox-content', { visible: true });
         await page.click('.privacy-wrap-pc label, .bui-checkbox-content');
         await sleep(500);
 
-        // 5. 點擊登入
         await page.waitForSelector('.userid-login-btn', { visible: true });
         await page.click('.userid-login-btn');
 
-        // 等待登入後角色資訊載入
-        await sleep(3000);
+        // 📸 關鍵點 1：等候 5 秒讓網頁彈出結果，並立刻拍張照存證！
+        await sleep(5000);
+        await page.screenshot({ path: 'step1_after_login.png', fullPage: true });
 
-        await page.waitForSelector('img[alt="690エコー"]');
-        await page.click('img[alt="690エコー"]');
-        await sleep(1000);
-        
-        await page.waitForSelector('.topup-action .topup-btn');
-        await page.click('.topup-action .topup-btn');
+        // 點擊商品 (對應你原本 Tampermonkey 的步驟)
+        const targetProductImg = await page.$('img[alt="690エコー"]');
+        if (targetProductImg) {
+            await targetProductImg.click();
+            await sleep(2000);
+        }
 
-        console.log(`[${targetUid}] 正在探測實名驗證狀態...`);
+        const topupBtn = await page.$('.topup-action .topup-btn');
+        if (topupBtn) {
+            await topupBtn.click();
+            await sleep(3000);
+        }
+
+        // 📸 關鍵點 2：拍下點擊儲存後的畫面
+        await page.screenshot({ path: 'step2_after_topup.png', fullPage: true });
+
+        console.log(`[${targetUid}] 正在深度探測阻擋彈窗...`);
         
-        // 透過簡單的 try-catch 來判斷有沒有出現未實名阻擋窗
         let result = 'PASS';
         try {
-            await page.waitForSelector('#bui-confirm .bui-modal-content', { timeout: 5000 });
-            result = 'BLOCKED'; // 有跳出阻擋窗 ➔ 未實名
+            // 把等待時間拉長到 10 秒，確保彈窗若存在絕對抓得到
+            await page.waitForSelector('#bui-confirm .bui-modal-content', { visible: true, timeout: 10000 });
+            result = 'BLOCKED'; 
         } catch (e) {
-            result = 'PASS'; // 沒跳出阻擋窗 ➔ 正常通過
+            result = 'PASS'; 
         }
 
+        // 📸 關鍵點 3：最終判定結果截圖
+        await page.screenshot({ path: `final_${result}.png`, fullPage: true });
         await browser.close();
-
-        // 依照結果更新 Supabase 與發送 Discord
-        if (result === 'BLOCKED') {
-            console.log(`🚨 訂單 ${orderNo} 未實名！`);
-            await supabase.from('orders').update({ realname_status: 'UNVERIFIED' }).eq('id', orderId);
-
-            if (DISCORD_WEBHOOK) {
-                await fetch(DISCORD_WEBHOOK, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        content: `⚠️ **緊急通知：帳號未實名阻擋！**\n訂單編號：${orderNo}\n玩家 UID：${targetUid}\n請立刻聯絡客戶進行實名認證！`
-                    })
-                });
-            }
-        } else {
-            console.log(`✅ 訂單 ${orderNo} 實名驗證通過！`);
-            await supabase.from('orders').update({ realname_status: 'VERIFIED' }).eq('id', orderId);
-        }
 
     } catch (error) {
         console.error(`[${targetUid}] 檢查過程發生錯誤：`, error);
